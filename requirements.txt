@@ -1,0 +1,17 @@
+# ══════════════════════════════════════════════════
+# NEXUS ARB — Funding Rate Arbitrage Engine
+# Python 3.9+  |  pip install -r requirements.txt
+# ══════════════════════════════════════════════════
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Async HTTP (used internally by CCXT)
+aiohttp>=3.9.3
+
+# Exchange connectivity — all 8 exchanges via CCXT
+ccxt>=4.2.0
+
+# (optional) env management
+python-dotenv>=1.0.0

@@ -1,0 +1,16 @@
+# ══════════════════════════════════════════════════
+# render.yaml — 1-click deploy on Render.com
+# ══════════════════════════════════════════════════
+services:
+  - type: web
+    name: nexus-arb-engine
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    healthCheckPath: /api/health
