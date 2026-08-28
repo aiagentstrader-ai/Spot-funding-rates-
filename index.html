@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>NEXUS ARB ∷ Funding Rate Engine</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ═══════════════════ ROOT TOKENS ═══════════════════ */
+:root{
+  --bg0:#05080e;--bg1:#090e1a;--bg2:#0c1422;--bg3:#0f1b2d;
+  --c0:#00f5ff;--c1:#00ff88;--c2:#ff1744;--c3:#ffeb3b;
+  --c4:#aa00ff;--c5:#ff6d00;--c6:#2979ff;
+  --t0:#ddeeff;--t1:#607d9b;--t2:#344e6a;--t3:#1d2e42;
+  --bdr:#162030;--glow0:rgba(0,245,255,.12);
+  --sb:240px;
+  --r:8px;
+}
+
+/* ═══════════════════ RESET ═══════════════════ */
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg0);color:var(--t0);
+  font-family:'Courier New',Consolas,monospace;
+  font-size:13px;overflow-x:hidden;
+}
+
+/* Grid overlay */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    linear-gradient(rgba(0,245,255,.02) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,245,255,.02) 1px,transparent 1px);
+  background-size:32px 32px;
+}
+
+/* Scan line */
+body::after{
+  content:'';position:fixed;top:-100%;left:0;width:100%;height:2px;
+  background:linear-gradient(90deg,transparent,rgba(0,245,255,.15),transparent);
+  animation:scan 6s linear infinite;pointer-events:none;z-index:1;
+}
+@keyframes scan{to{top:110%}}
+
+/* ═══════════════════ SIDEBAR ═══════════════════ */
+#sidebar{
+  position:fixed;left:0;top:0;width:var(--sb);height:100vh;
+  background:var(--bg1);border-right:1px solid var(--bdr);
+  z-index:200;overflow-y:auto;overflow-x:hidden;
+  display:flex;flex-direction:column;
+  transition:transform .28s cubic-bezier(.4,0,.2,1);
+}
+.sb-logo{
+  padding:18px 16px;border-bottom:1px solid var(--bdr);
+  display:flex;align-items:center;gap:12px;flex-shrink:0;
+}
+.sb-icon{
+  width:38px;height:38px;border-radius:8px;flex-shrink:0;
+  background:linear-gradient(135deg,var(--c0),var(--c4));
+  display:grid;place-items:center;font-size:17px;
+  box-shadow:0 0 18px rgba(0,245,255,.35);
+  animation:icon-pulse 2.4s ease-in-out infinite;
+}
+@keyframes icon-pulse{
+  0%,100%{box-shadow:0 0 14px rgba(0,245,255,.35)}
+  50%    {box-shadow:0 0 32px rgba(0,245,255,.65),0 0 60px rgba(170,0,255,.25)}
+}
+.sb-title{font-size:13px;font-weight:700;color:var(--c0);letter-spacing:2.5px}
+.sb-sub  {font-size:9px; color:var(--t2);letter-spacing:1px;margin-top:2px}
+
+.sb-sec{padding:14px 16px 6px;font-size:9px;letter-spacing:2px;color:var(--t2);text-transform:uppercase}
+.nav-item{
+  display:flex;align-items:center;gap:11px;
+  padding:11px 16px;cursor:pointer;border-left:3px solid transparent;
+  color:var(--t1);font-size:12px;transition:.15s;
+}
+.nav-item:hover,.nav-item.active{
+  color:var(--c0);background:rgba(0,245,255,.04);border-left-color:var(--c0);
+}
+.nav-item i{width:16px;text-align:center;font-size:12px}
+.live-badge{
+  margin-left:auto;display:flex;align-items:center;
+  gap:4px;font-size:9px;color:var(--c1);
+}
+.dot{
+  width:5px;height:5px;border-radius:50%;background:var(--c1);
+  animation:blink 1s ease-in-out infinite;
+}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.15}}
+
+.sb-status{
+  margin-top:auto;padding:12px 16px;border-top:1px solid var(--bdr);
+  background:var(--bg1);flex-shrink:0;
+}
+.sb-row{
+  display:flex;justify-content:space-between;font-size:10px;
+  padding:3px 0;color:var(--t2);
+}
+.sb-val{color:var(--c0)}
+
+/* Overlay */
+#overlay{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);
+  z-index:199;backdrop-filter:blur(2px);
+}
+
+/* ═══════════════════ MAIN ═══════════════════ */
+#main{margin-left:var(--sb);min-height:100vh;position:relative;z-index:2}
+
+/* ═══════════════════ HEADER ═══════════════════ */
+.hdr{
+  position:sticky;top:0;z-index:150;
+  background:rgba(9,14,26,.96);border-bottom:1px solid var(--bdr);
+  backdrop-filter:blur(12px);
+  padding:10px 20px;display:flex;align-items:center;justify-content:space-between;
+}
+.hdr-l{display:flex;align-items:center;gap:14px}
+#menu-btn{
+  display:none;background:none;border:1px solid var(--bdr);
+  color:var(--c0);padding:7px 10px;border-radius:5px;cursor:pointer;font-size:14px;
+}
+.hdr-title{font-size:12px;letter-spacing:3px;color:var(--c0)}
+.hdr-sub  {font-size:9px; color:var(--t2);letter-spacing:1px;margin-top:2px}
+.hdr-r    {display:flex;align-items:center;gap:18px}
+.hdr-stat {font-size:10px;color:var(--t1)}
+.hdr-stat span{color:var(--c0)}
+.live-ind {display:flex;align-items:center;gap:5px;font-size:10px;color:var(--c1)}
+.spin{
+  display:inline-block;width:12px;height:12px;
+  border:2px solid var(--bdr);border-top-color:var(--c0);
+  border-radius:50%;animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ═══════════════════ TICKER ═══════════════════ */
+.ticker{
+  background:var(--bg1);border-bottom:1px solid var(--bdr);
+  height:26px;display:flex;align-items:center;overflow:hidden;
+}
+.ticker-inner{
+  display:flex;gap:36px;white-space:nowrap;
+  animation:ticker-run 35s linear infinite;
+}
+@keyframes ticker-run{from{transform:translateX(100vw)}to{transform:translateX(-100%)}}
+.t-item  {display:flex;gap:5px;font-size:10px}
+.t-sym   {color:var(--t1)}
+.t-up    {color:var(--c1)}
+.t-dn    {color:var(--c2)}
+
+/* ═══════════════════ CONTENT ═══════════════════ */
+.content{padding:16px;display:flex;flex-direction:column;gap:16px}
+
+/* ═══════════════════ SENTIMENT BAR ═══════════════════ */
+.sent-bar{
+  background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);
+  padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+}
+.sent-label{font-size:10px;color:var(--t1);white-space:nowrap}
+.sent-val  {font-size:12px;font-weight:700;min-width:130px}
+.fg-track  {flex:1;min-width:80px;height:6px;background:var(--bdr);border-radius:3px;overflow:hidden}
+.fg-fill   {height:100%;border-radius:3px;
+  background:linear-gradient(90deg,var(--c2) 0%,var(--c3) 50%,var(--c1) 100%);
+  transition:width 1.2s ease;
+}
+
+/* ═══════════════════ STAT CARDS ═══════════════════ */
+.stat-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+.stat{
+  background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);
+  padding:14px;position:relative;overflow:hidden;transition:.2s;
+}
+.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.stat.c0::before{background:var(--c0)} .stat.c1::before{background:var(--c1)}
+.stat.c2::before{background:var(--c2)} .stat.c3::before{background:var(--c3)}
+.stat.c4::before{background:var(--c4)} .stat.c5::before{background:var(--c5)}
+.stat:hover{border-color:var(--c0);box-shadow:0 0 16px var(--glow0)}
+.s-lbl{font-size:9px;letter-spacing:1.5px;color:var(--t2);text-transform:uppercase;margin-bottom:6px}
+.s-val{font-size:20px;font-weight:700;margin-bottom:3px}
+.s-sub{font-size:10px;color:var(--t1)}
+.s-ico{position:absolute;top:12px;right:12px;font-size:22px;opacity:.1}
+.pos{color:var(--c1)}.neg{color:var(--c2)}
+
+/* ═══════════════════ SECTION HEADER ═══════════════════ */
+.sec-hdr{
+  display:flex;align-items:center;gap:8px;font-size:10px;
+  letter-spacing:2px;color:var(--t2);text-transform:uppercase;margin-bottom:10px;
+}
+.sec-hdr i{color:var(--c0)}
+.sec-hdr::after{content:'';flex:1;height:1px;background:var(--bdr)}
+
+/* ═══════════════════ TIMERS ═══════════════════ */
+.timer-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.timer-card{
+  background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);
+  padding:18px;display:flex;flex-direction:column;align-items:center;gap:10px;
+}
+.timer-card.priority{
+  border-color:var(--c2);
+  animation:priority-glow 1.4s ease-in-out infinite;
+}
+@keyframes priority-glow{
+  0%,100%{box-shadow:0 0 12px rgba(255,23,68,.2)}
+  50%    {box-shadow:0 0 28px rgba(255,23,68,.45)}
+}
+.t-lbl   {font-size:9px;letter-spacing:2px;color:var(--t2);text-transform:uppercase}
+.t-wrap  {position:relative;width:130px;height:130px}
+.t-wrap canvas{width:100%!important;height:100%!important}
+.t-center{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  text-align:center;pointer-events:none;
+}
+.t-time{font-size:15px;font-weight:700;color:var(--c0)}
+.t-sub {font-size:8px;color:var(--t2);margin-top:2px}
+.t-next{font-size:9px;color:var(--t2)}
+.t-next span{color:var(--c0)}
+
+/* ═══════════════════ CHART CARDS ═══════════════════ */
+.card{
+  background:var(--bg2);border:1px solid var(--bdr);
+  border-radius:var(--r);padding:18px;
+}
+.card:hover{border-color:var(--t3)}
+.card-hdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}
+.card-title{font-size:10px;letter-spacing:2px;color:var(--c0);text-transform:uppercase}
+.card-meta {font-size:9px;color:var(--t2);margin-top:3px}
+.badge{
+  font-size:9px;padding:3px 8px;border-radius:4px;white-space:nowrap;
+  background:rgba(0,245,255,.08);border:1px solid rgba(0,245,255,.2);color:var(--c0);
+}
+.legend{display:flex;gap:14px;flex-wrap:wrap}
+.leg{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--t1)}
+.leg-line{width:18px;height:2px;border-radius:1px}
+.leg-dash{width:18px;height:0;border-top:2px dashed}
+
+/* chart 2-col + weighted */
+.g2   {display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.g-wt {display:grid;grid-template-columns:3fr 2fr;gap:12px}
+
+/* cycle averages row */
+.avgs{display:flex;gap:20px;margin-top:10px;flex-wrap:wrap}
+.avg-item .av-lbl{font-size:9px;color:var(--t2)}
+.avg-item .av-val{font-size:12px;font-weight:700}
+
+/* ai row */
+.ai-row{display:flex;gap:14px;margin-top:10px;flex-wrap:wrap}
+.ai-item .ai-lbl{font-size:9px;color:var(--t2)}
+.ai-item .ai-val{font-size:13px;font-weight:700}
+
+/* fee legend */
+.fee-leg{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.fee-row{display:flex;justify-content:space-between;font-size:10px;align-items:center}
+.fee-dot{width:8px;height:8px;border-radius:50%;margin-right:5px;display:inline-block}
+
+/* ═══════════════════ POSITIONS ═══════════════════ */
+.pos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.pos-card{
+  background:var(--bg2);border:1px solid var(--bdr);
+  border-left:3px solid var(--c1);border-radius:var(--r);padding:14px;
+}
+.pos-card:hover{box-shadow:0 0 14px rgba(0,255,136,.08)}
+.pos-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.pos-sym{font-size:14px;font-weight:700}
+.pos-id {font-size:9px;color:var(--t2);margin-top:2px}
+.pos-badge{
+  font-size:9px;padding:3px 8px;border-radius:12px;
+  background:rgba(0,255,136,.1);border:1px solid var(--c1);color:var(--c1);
+}
+.pos-tbl{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
+.pr{display:flex;justify-content:space-between;padding:3px 0;
+    border-bottom:1px solid var(--bdr);font-size:10px}
+.pr-l{color:var(--t2)}.pr-v{color:var(--t0)}
+.pos-footer{
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;
+  margin-top:10px;padding-top:8px;border-top:1px solid var(--bdr);font-size:10px;
+}
+.pf-item .pf-l{color:var(--t2)}.pf-item .pf-v{font-weight:700}
+.empty-state{
+  grid-column:1/-1;padding:28px;text-align:center;
+  color:var(--t2);font-size:11px;
+}
+.empty-state i{font-size:24px;display:block;margin-bottom:8px;opacity:.25}
+
+/* ═══════════════════ OPPORTUNITIES ═══════════════════ */
+.opp-wrap{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r)}
+.opp-hdr{
+  display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr .8fr;
+  padding:8px 16px;font-size:9px;letter-spacing:1.5px;color:var(--t2);
+  text-transform:uppercase;border-bottom:1px solid var(--bdr);gap:8px;
+}
+.opp-row{
+  display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr .8fr;
+  padding:10px 16px;gap:8px;border-bottom:1px solid var(--bdr);
+  cursor:pointer;transition:.15s;align-items:center;
+}
+.opp-row:last-child{border-bottom:none}
+.opp-row:hover{background:rgba(0,245,255,.025)}
+.opp-sym{font-size:12px;font-weight:700}
+.opp-exch{font-size:9px;color:var(--t2);margin-top:1px}
+.opp-fr{font-size:13px;font-weight:700}
+.opp-sub{font-size:9px;color:var(--t2);margin-top:1px}
+.opp-pnl{font-size:12px;color:var(--c0)}
+.opp-apy{font-size:11px;color:var(--t1)}
+.score-bar{
+  width:100%;height:4px;background:var(--bdr);border-radius:2px;overflow:hidden;margin-top:4px;
+}
+.score-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--c4),var(--c0))}
+
+/* ═══════════════════ SCROLLBAR ═══════════════════ */
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:var(--bg0)}
+::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--c0)}
+
+/* ═══════════════════ RESPONSIVE ═══════════════════ */
+@media(max-width:1100px){
+  .stat-grid{grid-template-columns:repeat(3,1fr)}
+}
+@media(max-width:850px){
+  .g2,.g-wt{grid-template-columns:1fr}
+  .opp-hdr,.opp-row{grid-template-columns:1.6fr 1fr 1fr}
+  .opp-hdr>*:nth-child(n+4),.opp-row>*:nth-child(n+4){display:none}
+}
+@media(max-width:768px){
+  :root{--sb:240px}
+  #sidebar{transform:translateX(-100%)}
+  #sidebar.open{transform:translateX(0)}
+  #overlay.show{display:block}
+  #main{margin-left:0}
+  #menu-btn{display:block}
+  .hdr-stat.hide-sm{display:none}
+  .stat-grid{grid-template-columns:repeat(2,1fr)}
+  .timer-row{grid-template-columns:1fr}
+}
+@media(max-width:480px){
+  .stat-grid{grid-template-columns:repeat(2,1fr)}
+  .content{padding:10px}
+}
+</style>
+</head>
+<body>
+
+<!-- Overlay -->
+<div id="overlay" onclick="closeSidebar()"></div>
+
+<!-- ═══════════ SIDEBAR ═══════════ -->
+<nav id="sidebar">
+  <div class="sb-logo">
+    <div class="sb-icon">⚡</div>
+    <div>
+      <div class="sb-title">NEXUS ARB</div>
+      <div class="sb-sub">FUNDING RATE ENGINE v1.0</div>
+    </div>
+  </div>
+  <div class="sb-sec">Navigation</div>
+  <div class="nav-item active" onclick="goto('top')"><i class="fas fa-gauge-high"></i>Dashboard<span class="live-badge"><span class="dot"></span>LIVE</span></div>
+  <div class="nav-item" onclick="goto('s-timers')"><i class="fas fa-clock"></i>Settlement Timers</div>
+  <div class="nav-item" onclick="goto('s-market')"><i class="fas fa-chart-line"></i>Market Analysis</div>
+  <div class="nav-item" onclick="goto('s-ai')"><i class="fas fa-brain"></i>AI Causality</div>
+  <div class="nav-item" onclick="goto('s-positions')"><i class="fas fa-layer-group"></i>Active Positions</div>
+  <div class="nav-item" onclick="goto('s-opps')"><i class="fas fa-crosshairs"></i>Opportunities</div>
+  <div class="sb-sec">System</div>
+  <div class="nav-item"><i class="fas fa-server"></i>Engine Health</div>
+  <div class="nav-item"><i class="fas fa-file-export"></i>Export Log</div>
+
+  <div class="sb-status">
+    <div style="font-size:9px;letter-spacing:1.5px;color:var(--t2);margin-bottom:6px">SYSTEM STATUS</div>
+    <div class="sb-row"><span>Scanner</span><span class="sb-val" id="sb-scanner">● INIT</span></div>
+    <div class="sb-row"><span>Exchanges</span><span class="sb-val" id="sb-ex">-- / 8</span></div>
+    <div class="sb-row"><span>Mode</span><span class="sb-val" id="sb-mode">SIM</span></div>
+    <div class="sb-row"><span>Scan #</span><span style="color:var(--c3)" id="sb-scan">0</span></div>
+  </div>
+</nav>
+
+<!-- ═══════════ MAIN ═══════════ -->
+<div id="main">
+
+  <!-- Header -->
+  <header class="hdr">
+    <div class="hdr-l">
+      <button id="menu-btn" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+      <div>
+        <div class="hdr-title">NEXUS ARB ∷ FUNDING RATE ARBITRAGE ENGINE</div>
+        <div class="hdr-sub">100% DELTA-NEUTRAL PAPER TRADING ∷ $200/PAIR HARDCAP ∷ 1× LEVERAGE ONLY</div>
+      </div>
+    </div>
+    <div class="hdr-r">
+      <div class="live-ind"><span class="dot"></span>LIVE FEED</div>
+      <div class="hdr-stat hide-sm">SCAN&nbsp;<span id="h-scan">0</span>&nbsp;∷&nbsp;LAST&nbsp;<span id="h-last">--:--:--</span></div>
+      <div class="hdr-stat" style="display:flex;align-items:center;gap:5px">
+        <span class="spin" id="spin" style="display:none"></span>
+        <span style="color:var(--t2)">5s</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Ticker -->
+  <div class="ticker"><div class="ticker-inner" id="ticker"></div></div>
+
+  <div class="content" id="top">
+
+    <!-- Sentiment -->
+    <div class="sent-bar">
+      <i class="fas fa-temperature-half" style="color:var(--c3)"></i>
+      <span class="sent-label">FEAR &amp; GREED:</span>
+      <span class="sent-val" id="fg-txt">Loading…</span>
+      <div class="fg-track"><div class="fg-fill" id="fg-bar" style="width:50%"></div></div>
+      <span class="sent-label">BTC DOM:</span>
+      <span style="color:var(--c0);font-size:12px;font-weight:700" id="btc-dom">--%</span>
+      <span class="sent-label" style="margin-left:10px">NET FLOW:</span>
+      <span style="font-size:12px;font-weight:700" id="net-flow">$--M</span>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="stat-grid">
+      <div class="stat c0"><i class="fas fa-dollar-sign s-ico"></i>
+        <div class="s-lbl">Total Net P&amp;L</div>
+        <div class="s-val" id="st-pnl">$0.00</div>
+        <div class="s-sub" id="st-pnl-sub">0 trades</div>
+      </div>
+      <div class="stat c1"><i class="fas fa-trophy s-ico"></i>
+        <div class="s-lbl">Win Rate</div>
+        <div class="s-val" id="st-wr">0%</div>
+        <div class="s-sub" id="st-wr-sub">-- / -- trades</div>
+      </div>
+      <div class="stat c3"><i class="fas fa-bolt s-ico"></i>
+        <div class="s-lbl">Active Positions</div>
+        <div class="s-val" id="st-act">0</div>
+        <div class="s-sub">MAX 5 ∷ $200 / PAIR</div>
+      </div>
+      <div class="stat c4"><i class="fas fa-satellite-dish s-ico"></i>
+        <div class="s-lbl">Opportunities</div>
+        <div class="s-val" id="st-opps">0</div>
+        <div class="s-sub">8 EXCHANGES SCANNED</div>
+      </div>
+      <div class="stat c2"><i class="fas fa-percent s-ico"></i>
+        <div class="s-lbl">Top Funding Rate</div>
+        <div class="s-val" id="st-fr">0.0000%</div>
+        <div class="s-sub" id="st-fr-sym">-- / --</div>
+      </div>
+      <div class="stat c5"><i class="fas fa-coins s-ico"></i>
+        <div class="s-lbl">Total Fees Paid</div>
+        <div class="s-val" id="st-fees">$0.00</div>
+        <div class="s-sub">MAKER + TAKER</div>
+      </div>
+    </div>
+
+    <!-- Settlement Timers -->
+    <div id="s-timers">
+      <div class="sec-hdr"><i class="fas fa-clock"></i>SETTLEMENT COUNTDOWN WINDOWS</div>
+      <div class="timer-row">
+        <div class="timer-card" id="tc-1h">
+          <div class="t-lbl">1-HOUR WINDOW</div>
+          <div class="t-wrap">
+            <canvas id="tmr1h"></canvas>
+            <div class="t-center"><div class="t-time" id="tt-1h">--:--:--</div><div class="t-sub">REMAINING</div></div>
+          </div>
+          <div class="t-next">NEXT: <span id="tn-1h">--:--</span></div>
+        </div>
+        <div class="timer-card" id="tc-4h">
+          <div class="t-lbl">4-HOUR WINDOW</div>
+          <div class="t-wrap">
+            <canvas id="tmr4h"></canvas>
+            <div class="t-center"><div class="t-time" id="tt-4h">--:--:--</div><div class="t-sub">REMAINING</div></div>
+          </div>
+          <div class="t-next">NEXT: <span id="tn-4h">--:--</span></div>
+        </div>
+        <div class="timer-card" id="tc-8h">
+          <div class="t-lbl">8-HOUR WINDOW</div>
+          <div class="t-wrap">
+            <canvas id="tmr8h"></canvas>
+            <div class="t-center"><div class="t-time" id="tt-8h">--:--:--</div><div class="t-sub">REMAINING</div></div>
+          </div>
+          <div class="t-next">NEXT: <span id="tn-8h">--:--</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Price Chart -->
+    <div id="s-market">
+      <div class="sec-hdr"><i class="fas fa-chart-line"></i>LIVE PRICE CORRELATION MATRIX</div>
+      <div class="card">
+        <div class="card-hdr">
+          <div>
+            <div class="card-title">TARGET vs MOTHER ASSET v
